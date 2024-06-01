@@ -22,64 +22,153 @@
     return;
   }
 
+  const StoreName = "cachedReadings";
+
   const wkof = window.wkof;
   const shared = {
+    db: undefined,
+
     vocab: undefined,
     kanji: undefined,
+    learnedVocabProcessed: false,
+
+    // KanjiId -> [learned readings]
+    lastReadingCacheTime: new Date(0),
+    readingsCache: {},
   };
 
   wkof.include("ItemData");
-  wkof.ready("ItemData").then(startup).catch(loadError);
+  wkof.ready("ItemData").then(openDB).catch(loadError);
 
   function loadError(e) {
-    console.error('Failed to load data from WKOF for "Daily Vocab Planner"', e);
+    console.error('Failed to load data from WKOF for "Vocab Analyzer"', e);
+  }
+
+  function openDB() {
+    const dbRequest = window.indexedDB.open("wk-vocab-analyzer", 1);
+    dbRequest.onerror = (event) => {
+      console.error("Could not open database for Vocab Analyzer. Analyzing vocab with learned, secondary readings is not supported.");
+      startup();
+    };
+    dbRequest.onsuccess = (event) => {
+      shared.db = event.target.result;
+      const transaction = shared.db.transaction([StoreName], "readonly");
+      const store = transaction.objectStore(StoreName);
+      const request = store.get("main");
+      request.onsuccess = () => {
+        const data = request.result;
+        shared.lastReadingCacheTime = data.lastReadingCacheTime;
+        shared.readingsCache = data.cache;
+        startup();
+      };
+    };
+    dbRequest.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      const store = db.createObjectStore(StoreName, { keyPath: "id" });
+      store.add({ id: "main", lastReadingCacheTime: new Date(0), cache: {} });
+    };
   }
 
   function startup() {
-    const vocabConfig = { wk_items: { options: { subjects: true }, filters: { srs: "init", item_type: "voc" } } };
-    wkof.ItemData.get_items(vocabConfig).then(processVocab);
     const kanjiConfig = { wk_items: { options: { subjects: true }, filters: { level: "1..+0", item_type: "kanji" } } };
     wkof.ItemData.get_items(kanjiConfig).then(processKanji);
   }
 
-  function processVocab(items) {
-    shared.vocab = items;
-    if (shared.kanji !== undefined) {
-      processData();
+  function processKanji(items) {
+    shared.kanji = items;
+
+    if (shared.db) {
+      // Get all learned vocab
+      const config = {
+        wk_items: { options: { subjects: true, assignments: true }, filters: { srs: { value: [-1, 0], invert: true }, item_type: "voc" } },
+      };
+      wkof.ItemData.get_items(config).then(cacheNewlyLearnedReadings);
+    } else {
+      processVocab();
     }
   }
 
-  function processKanji(items) {
-    shared.kanji = items;
-    if (shared.vocab !== undefined) {
-      processData();
+  function cacheNewlyLearnedReadings(items) {
+    if (items.length > 0) {
+      let hasUpdates = false;
+      for (let vocab of items) {
+        const startTime = new Date(vocab.assignments.started_at);
+        if (startTime > shared.lastReadingCacheTime) {
+          const analysis = analyzeVocab(vocab);
+          if (analysis) {
+            for (let kanji of analysis) {
+              if (shared.readingsCache[kanji.id] === undefined) {
+                shared.readingsCache[kanji.id] = new Set();
+              }
+              shared.readingsCache[kanji.id].add(kanji.reading);
+              hasUpdates = true;
+            }
+          }
+        }
+      }
+
+      if (hasUpdates) {
+        const transaction = shared.db.transaction([StoreName], "readwrite");
+        const store = transaction.objectStore(StoreName);
+        store.put({ id: "main", lastReadingCacheTime: new Date(), cache: shared.readingsCache });
+      }
     }
+
+    processVocab();
+  }
+
+  function processVocab() {
+    // Get unlocked, not yet learned vocab
+    const vocabConfig = { wk_items: { options: { subjects: true }, filters: { srs: "init", item_type: "voc" } } };
+    wkof.ItemData.get_items(vocabConfig).then((items) => {
+      shared.vocab = items;
+      processData();
+    });
   }
 
   // ====================================================================================
   function processData() {
     if (window.location.href.includes("subject-lessons/picker")) {
-      const vocabResults = analyzeVocab();
-      annotateVocabInLessonPicker(vocabResults);
+      const uiResults = {};
+      for (let vocab of shared.vocab) {
+        const analysis = analyzeVocab(vocab);
+        const isEasy = analysis !== undefined && analysis.reduce((p, c) => p && c.primary, true);
+        let isNewReading = false;
+        if (!isEasy) {
+          if (analysis) {
+            for (const kanji of analysis) {
+              if (!kanji.primary) {
+                const cachedReadings = shared.readingsCache[kanji.id];
+                if (!cachedReadings || !cachedReadings.has(kanji.reading)) {
+                  isNewReading = true;
+                  break;
+                }
+              }
+            }
+          } else {
+            isNewReading = true;
+          }
+        }
+        uiResults[vocab.id] = { isEasy, isNewReading };
+      }
+      console.log(uiResults);
+
+      annotateVocabInLessonPicker(uiResults);
     }
   }
 
-  function analyzeVocab() {
-    let result = {};
-    for (let vocab of shared.vocab) {
-      const data = vocab.data;
-      const kanjiReadings = getKanjiReadings(data.component_subject_ids);
+  // Returns [kanjiMatch]
+  function analyzeVocab(vocab) {
+    const data = vocab.data;
+    const kanjiReadings = getKanjiReadings(data.component_subject_ids);
 
-      for (let reading of data.readings) {
-        if (reading.primary && reading.accepted_answer) {
-          const tokens = getCharacterTokens(data.characters);
-          const kanjiMatches = matchKanjiReadings(tokens, reading.reading, kanjiReadings);
-          const isEasy = kanjiMatches !== undefined && kanjiMatches.reduce((p, c) => p && c.primary, true);
-          result[vocab.id] = { isEasy };
-        }
+    for (let reading of data.readings) {
+      if (reading.primary && reading.accepted_answer) {
+        const tokens = getCharacterTokens(data.characters);
+        const kanjiMatches = matchKanjiReadings(tokens, reading.reading, kanjiReadings);
+        return kanjiMatches;
       }
     }
-    return result;
   }
 
   // Returns an object of <kanji character> -> { primaryReading[], secondaryReading[] }
@@ -97,7 +186,7 @@
           secondaryReadings.push(reading.reading);
         }
       }
-      kanjiReadings[kanji.characters] = { primary: primaryReadings, secondary: secondaryReadings };
+      kanjiReadings[kanji.characters] = { id, primary: primaryReadings, secondary: secondaryReadings };
     }
     return kanjiReadings;
   }
@@ -126,13 +215,13 @@
 
     const cToken = tokens[0];
     if (cToken.type === "kanji") {
-      // Now check which reading this is
+      // Check which reading this is
       const kReadings = kanjiReadings[cToken.value];
       for (let primary of kReadings.primary) {
         if (reading.startsWith(primary)) {
           const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings);
           if (subResult !== undefined) {
-            return [{ character: cToken.value, reading: primary, primary: true }, ...subResult];
+            return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true }, ...subResult];
           }
         }
       }
@@ -140,7 +229,7 @@
         if (reading.startsWith(secondary)) {
           const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings);
           if (subResult !== undefined) {
-            return [{ character: cToken.value, reading: secondary, primary: false }, ...subResult];
+            return [{ id: kReadings.id, character: cToken.value, reading: secondary, primary: false }, ...subResult];
           }
         }
       }
@@ -160,10 +249,16 @@
     const subjectElements = document.querySelectorAll("[data-subject-id]");
     for (let element of subjectElements) {
       const id = element.getAttribute("data-subject-id");
-      if (id in vocabResults && vocabResults[id].isEasy) {
+      if (id in vocabResults) {
         const target = element.firstElementChild.firstElementChild.firstElementChild;
-        const computedStyle = window.getComputedStyle(target);
-        target.style.boxShadow = computedStyle.boxShadow + ",0 0 3px 3px green";
+
+        if (vocabResults[id].isEasy) {
+          target.style.color = "#A1FA4F";
+        } else if (vocabResults[id].isNewReading) {
+          target.style.color = "#EB3324";
+        } else {
+          target.style.color = "#3487FF";
+        }
       }
     }
   }
