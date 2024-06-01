@@ -2,10 +2,8 @@
 // @name         Vocab Analyzer
 // @namespace    wyverex
 // @version      1.0.0
-// @description  <TODO>
+// @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
-// @match        https://www.wanikani.com/
-// @match        https://www.wanikani.com/dashboard
 // @match        https://www.wanikani.com/subject-lessons/picker
 // @grant        none
 // @require      https://unpkg.com/wanakana
