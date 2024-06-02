@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vocab Analyzer
 // @namespace    wyverex
-// @version      1.0.0
+// @version      1.0.1
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/subject-lessons/picker
@@ -232,13 +232,16 @@
         }
       }
       return undefined;
-    } else {
+    } else if (cToken.type === "hiragana" || cToken.type === "katakana") {
       const length = cToken.value.length;
       if (length > reading.length) {
         // This is a character vs reading mismatch due to a non-matching kanji
         return undefined;
       }
       return matchKanjiReadings(tokens.slice(1), reading.slice(length), kanjiReadings);
+    } else {
+      // Skip this token, it doesn't participate in the reading
+      return matchKanjiReadings(tokens.slice(1), reading, kanjiReadings);
     }
   }
 
