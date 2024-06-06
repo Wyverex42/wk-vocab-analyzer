@@ -282,6 +282,9 @@
         return undefined;
       }
       return matchKanjiReadings(tokens.slice(1), reading.slice(length), kanjiReadings);
+    } else if (cToken.type === "japanesePunctuation" && cToken.value === "ー") {
+      // Long vowel kana
+      return matchKanjiReadings(tokens.slice(1), reading.slice(1), kanjiReadings);
     } else {
       // Skip this token, it doesn't participate in the reading
       return matchKanjiReadings(tokens.slice(1), reading, kanjiReadings);
