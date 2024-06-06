@@ -149,7 +149,6 @@
         }
         uiResults[vocab.id] = { isEasy, isNewReading };
       }
-      console.log(uiResults);
 
       annotateVocabInLessonPicker(uiResults);
     }
@@ -206,7 +205,7 @@
     return result;
   }
 
-  function matchKanjiReadings(tokens, reading, kanjiReadings) {
+  function matchKanjiReadings(tokens, reading, kanjiReadings, lastChosenReading) {
     if (tokens.length == 0) {
       return reading.length == 0 ? [] : undefined;
     }
@@ -215,9 +214,18 @@
     if (cToken.type === "kanji") {
       // Check which reading this is
       const kReadings = kanjiReadings[cToken.value];
+      if (cToken.value === "々") {
+        // This is a repeater of the previous reading
+        if (reading.startsWith(lastChosenReading)) {
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(lastChosenReading.length), kanjiReadings, lastChosenReading);
+          if (subResult !== undefined) {
+            return [{ id: kReadings.id, character: cToken.value, reading: lastChosenReading, primary: true }, ...subResult];
+          }
+        }
+      }
       for (let primary of kReadings.primary) {
         if (reading.startsWith(primary)) {
-          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings);
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings, primary);
           if (subResult !== undefined) {
             return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true }, ...subResult];
           }
@@ -225,7 +233,7 @@
       }
       for (let secondary of kReadings.secondary) {
         if (reading.startsWith(secondary)) {
-          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings);
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings, secondary);
           if (subResult !== undefined) {
             return [{ id: kReadings.id, character: cToken.value, reading: secondary, primary: false }, ...subResult];
           }
