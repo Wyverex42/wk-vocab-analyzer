@@ -22,6 +22,33 @@
 
   const StoreName = "cachedReadings";
 
+  const RendakuPrefixCandidates = {
+    か: ["が"],
+    き: ["ぎ"],
+    く: ["ぐ"],
+    け: ["げ"],
+    こ: ["ご"],
+    さ: ["ざ"],
+    し: ["じ"],
+    す: ["ず"],
+    せ: ["ぜ"],
+    そ: ["ぞ"],
+    た: ["だ"],
+    ち: ["ぢ"],
+    つ: ["づ"],
+    て: ["で"],
+    と: ["ど"],
+    は: ["ば", "ぱ"],
+    ひ: ["び", "ぴ"],
+    ふ: ["ぶ", "ぷ"],
+    へ: ["べ", "ぺ"],
+    ほ: ["ぼ", "ぽ"],
+  };
+  const RendakuSuffixCandidates = {
+    く: ["っ"],
+    つ: ["っ"],
+  };
+
   const wkof = window.wkof;
   const shared = {
     db: undefined,
@@ -130,12 +157,15 @@
       const uiResults = {};
       for (let vocab of shared.vocab) {
         const analysis = analyzeVocab(vocab);
-        const isEasy = analysis !== undefined && analysis.reduce((p, c) => p && c.primary, true);
+        const isEasy = analysis !== undefined && analysis.reduce((p, c) => p && c.primary && !c.rendaku, true);
         let isNewReading = false;
+        let hasRendaku = false;
         if (!isEasy) {
           if (analysis) {
             for (const kanji of analysis) {
-              if (!kanji.primary) {
+              if (kanji.rendaku) {
+                hasRendaku = true;
+              } else if (!kanji.primary) {
                 const cachedReadings = shared.readingsCache[kanji.id];
                 if (!cachedReadings || !cachedReadings.has(kanji.reading)) {
                   isNewReading = true;
@@ -147,7 +177,7 @@
             isNewReading = true;
           }
         }
-        uiResults[vocab.id] = { isEasy, isNewReading };
+        uiResults[vocab.id] = { isEasy, hasRendaku, isNewReading };
       }
 
       annotateVocabInLessonPicker(uiResults);
@@ -224,18 +254,23 @@
         }
       }
       for (let primary of kReadings.primary) {
-        if (reading.startsWith(primary)) {
+        const match = matchReading(reading, primary);
+        if (match.match) {
           const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings, primary);
           if (subResult !== undefined) {
-            return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true }, ...subResult];
+            return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true, rendaku: match.rendaku }, ...subResult];
           }
         }
       }
       for (let secondary of kReadings.secondary) {
-        if (reading.startsWith(secondary)) {
+        const match = matchReading(reading, secondary);
+        if (match.match) {
           const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings, secondary);
           if (subResult !== undefined) {
-            return [{ id: kReadings.id, character: cToken.value, reading: secondary, primary: false }, ...subResult];
+            return [
+              { id: kReadings.id, character: cToken.value, reading: secondary, primary: false, rendaku: match.rendaku },
+              ...subResult,
+            ];
           }
         }
       }
@@ -253,6 +288,33 @@
     }
   }
 
+  function matchReading(reading, candidate) {
+    if (reading.startsWith(candidate)) {
+      return { match: true, rendaku: false };
+    }
+    // Try rendaku prefix
+    const prefixCandidates = RendakuPrefixCandidates[candidate[0]];
+    if (prefixCandidates !== undefined) {
+      for (const rendaku of prefixCandidates) {
+        const newCandidate = rendaku + candidate.slice(1);
+        if (reading.startsWith(newCandidate)) {
+          return { match: true, rendaku: true };
+        }
+      }
+    }
+    // Try rendaku suffix
+    const suffixCandidates = RendakuSuffixCandidates[candidate[candidate.length - 1]];
+    if (suffixCandidates !== undefined) {
+      for (const rendaku of suffixCandidates) {
+        const newCandidate = candidate.slice(0, candidate.length - 1) + rendaku;
+        if (reading.startsWith(newCandidate)) {
+          return { match: true, rendaku: true };
+        }
+      }
+    }
+    return { match: false, rendaku: false };
+  }
+
   // ====================================================================================
   function annotateVocabInLessonPicker(vocabResults) {
     const subjectElements = document.querySelectorAll("[data-subject-id]");
@@ -265,6 +327,8 @@
           target.style.color = "#A1FA4F";
         } else if (vocabResults[id].isNewReading) {
           target.style.color = "#EB3324";
+        } else if (vocabResults[id].hasRendaku) {
+          target.style.color = "#FFF200";
         } else {
           target.style.color = "#3487FF";
         }
