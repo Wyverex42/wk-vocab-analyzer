@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Vocab Analyzer
+// @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.0.1
+// @version      1.1.0
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/subject-lessons/picker
