@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.1.0
+// @version      1.2.0
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
+// @match        https://www.wanikani.com/
+// @match        https://www.wanikani.com/dashboard
 // @match        https://www.wanikani.com/subject-lessons/picker
 // @grant        none
 // @require      https://unpkg.com/wanakana
@@ -48,10 +50,18 @@
     く: ["っ"],
     つ: ["っ"],
   };
+  const DefaultColors = {
+    easyColor: "#A1FA4F",
+    secondaryColor: "#3487FF",
+    rendakuColor: "#FFF200",
+    newColor: "#EB3324",
+  };
 
   const wkof = window.wkof;
   const shared = {
+    settings: {},
     db: undefined,
+    dialog: undefined,
 
     vocab: undefined,
     kanji: undefined,
@@ -62,11 +72,18 @@
     readingsCache: {},
   };
 
-  wkof.include("ItemData");
-  wkof.ready("ItemData").then(openDB).catch(loadError);
+  wkof.include("ItemData,Menu,Settings");
+  if (window.location.href.includes("subject-lessons/picker")) {
+    wkof.ready("ItemData").then(openDB).catch(loadError);
+  }
+  wkof.ready("document,Menu,Settings").then(loadSettings).then(installMenu).catch(loadError);
 
   function loadError(e) {
     console.error('Failed to load data from WKOF for "Vocab Analyzer"', e);
+  }
+
+  function loadSettings() {
+    return wkof.Settings.load("wk_vocab_analyzer", DefaultColors).then(() => (shared.settings = wkof.settings.wk_vocab_analyzer));
   }
 
   function openDB() {
@@ -99,6 +116,46 @@
     wkof.ItemData.get_items(kanjiConfig).then(processKanji);
   }
 
+  // ----------------------------------------------------------------------
+  function installMenu() {
+    wkof.Menu.insert_script_link({
+      name: "wk_vocab_analyzer",
+      submenu: "Settings",
+      title: "Vocab Reading Analyzer",
+      on_click: openSettings,
+    });
+  }
+
+  // prettier-ignore
+  function openSettings() {
+    let config = {
+      script_id: 'wk_vocab_analyzer',
+      title: 'Vocab Reading Analyzer',
+      content: {
+        display: {
+          type: "group", label: "Colors", content: {
+            easyColor: { type: "color", label: "Easy reading", full_width: false },
+            secondaryColor: { type: "color", label: "Secondary reading" },
+            rendakuColor: { type: "color", label: "Rendaku reading" },
+            newColor: { type: "color", label: "New reading" },
+            reset: { type: "button", label: "Reset to defaults", text: "Reset", on_click: resetToDefaults }
+          }
+        }
+      }
+    };
+    shared.dialog = new wkof.Settings(config);
+    shared.dialog.open();
+  }
+
+  function resetToDefaults() {
+    shared.settings.easyColor = DefaultColors.easyColor;
+    shared.settings.secondaryColor = DefaultColors.secondaryColor;
+    shared.settings.rendakuColor = DefaultColors.rendakuColor;
+    shared.settings.newColor = DefaultColors.newColor;
+    shared.dialog.refresh();
+  }
+
+  // ----------------------------------------------------------------------
   function processKanji(items) {
     shared.kanji = items;
 
@@ -327,13 +384,13 @@
         const target = element.firstElementChild.firstElementChild.firstElementChild;
 
         if (vocabResults[id].isEasy) {
-          target.style.color = "#A1FA4F";
+          target.style.color = shared.settings.easyColor;
         } else if (vocabResults[id].isNewReading) {
-          target.style.color = "#EB3324";
+          target.style.color = shared.settings.newColor;
         } else if (vocabResults[id].hasRendaku) {
-          target.style.color = "#FFF200";
+          target.style.color = shared.settings.rendakuColor;
         } else {
-          target.style.color = "#3487FF";
+          target.style.color = shared.settings.secondaryColor;
         }
       }
     }
