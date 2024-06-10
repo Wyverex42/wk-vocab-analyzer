@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Vocab Analyzer
+// @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.0.1
+// @version      1.1.0
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/subject-lessons/picker
@@ -21,6 +21,33 @@
   }
 
   const StoreName = "cachedReadings";
+
+  const RendakuPrefixCandidates = {
+    か: ["が"],
+    き: ["ぎ"],
+    く: ["ぐ"],
+    け: ["げ"],
+    こ: ["ご"],
+    さ: ["ざ"],
+    し: ["じ"],
+    す: ["ず"],
+    せ: ["ぜ"],
+    そ: ["ぞ"],
+    た: ["だ"],
+    ち: ["ぢ"],
+    つ: ["づ"],
+    て: ["で"],
+    と: ["ど"],
+    は: ["ば", "ぱ"],
+    ひ: ["び", "ぴ"],
+    ふ: ["ぶ", "ぷ"],
+    へ: ["べ", "ぺ"],
+    ほ: ["ぼ", "ぽ"],
+  };
+  const RendakuSuffixCandidates = {
+    く: ["っ"],
+    つ: ["っ"],
+  };
 
   const wkof = window.wkof;
   const shared = {
@@ -130,12 +157,15 @@
       const uiResults = {};
       for (let vocab of shared.vocab) {
         const analysis = analyzeVocab(vocab);
-        const isEasy = analysis !== undefined && analysis.reduce((p, c) => p && c.primary, true);
+        const isEasy = analysis !== undefined && analysis.reduce((p, c) => p && c.primary && !c.rendaku, true);
         let isNewReading = false;
+        let hasRendaku = false;
         if (!isEasy) {
           if (analysis) {
             for (const kanji of analysis) {
-              if (!kanji.primary) {
+              if (kanji.rendaku) {
+                hasRendaku = true;
+              } else if (!kanji.primary) {
                 const cachedReadings = shared.readingsCache[kanji.id];
                 if (!cachedReadings || !cachedReadings.has(kanji.reading)) {
                   isNewReading = true;
@@ -147,9 +177,8 @@
             isNewReading = true;
           }
         }
-        uiResults[vocab.id] = { isEasy, isNewReading };
+        uiResults[vocab.id] = { isEasy, hasRendaku, isNewReading };
       }
-      console.log(uiResults);
 
       annotateVocabInLessonPicker(uiResults);
     }
@@ -206,7 +235,7 @@
     return result;
   }
 
-  function matchKanjiReadings(tokens, reading, kanjiReadings) {
+  function matchKanjiReadings(tokens, reading, kanjiReadings, lastChosenReading) {
     if (tokens.length == 0) {
       return reading.length == 0 ? [] : undefined;
     }
@@ -215,19 +244,33 @@
     if (cToken.type === "kanji") {
       // Check which reading this is
       const kReadings = kanjiReadings[cToken.value];
-      for (let primary of kReadings.primary) {
-        if (reading.startsWith(primary)) {
-          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings);
+      if (cToken.value === "々") {
+        // This is a repeater of the previous reading
+        if (reading.startsWith(lastChosenReading)) {
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(lastChosenReading.length), kanjiReadings, lastChosenReading);
           if (subResult !== undefined) {
-            return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true }, ...subResult];
+            return [{ id: kReadings.id, character: cToken.value, reading: lastChosenReading, primary: true }, ...subResult];
+          }
+        }
+      }
+      for (let primary of kReadings.primary) {
+        const match = matchReading(reading, primary);
+        if (match.match) {
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(primary.length), kanjiReadings, primary);
+          if (subResult !== undefined) {
+            return [{ id: kReadings.id, character: cToken.value, reading: primary, primary: true, rendaku: match.rendaku }, ...subResult];
           }
         }
       }
       for (let secondary of kReadings.secondary) {
-        if (reading.startsWith(secondary)) {
-          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings);
+        const match = matchReading(reading, secondary);
+        if (match.match) {
+          const subResult = matchKanjiReadings(tokens.slice(1), reading.slice(secondary.length), kanjiReadings, secondary);
           if (subResult !== undefined) {
-            return [{ id: kReadings.id, character: cToken.value, reading: secondary, primary: false }, ...subResult];
+            return [
+              { id: kReadings.id, character: cToken.value, reading: secondary, primary: false, rendaku: match.rendaku },
+              ...subResult,
+            ];
           }
         }
       }
@@ -239,10 +282,40 @@
         return undefined;
       }
       return matchKanjiReadings(tokens.slice(1), reading.slice(length), kanjiReadings);
+    } else if (cToken.type === "japanesePunctuation" && cToken.value === "ー") {
+      // Long vowel kana
+      return matchKanjiReadings(tokens.slice(1), reading.slice(1), kanjiReadings);
     } else {
       // Skip this token, it doesn't participate in the reading
       return matchKanjiReadings(tokens.slice(1), reading, kanjiReadings);
     }
+  }
+
+  function matchReading(reading, candidate) {
+    if (reading.startsWith(candidate)) {
+      return { match: true, rendaku: false };
+    }
+    // Try rendaku prefix
+    const prefixCandidates = RendakuPrefixCandidates[candidate[0]];
+    if (prefixCandidates !== undefined) {
+      for (const rendaku of prefixCandidates) {
+        const newCandidate = rendaku + candidate.slice(1);
+        if (reading.startsWith(newCandidate)) {
+          return { match: true, rendaku: true };
+        }
+      }
+    }
+    // Try rendaku suffix
+    const suffixCandidates = RendakuSuffixCandidates[candidate[candidate.length - 1]];
+    if (suffixCandidates !== undefined) {
+      for (const rendaku of suffixCandidates) {
+        const newCandidate = candidate.slice(0, candidate.length - 1) + rendaku;
+        if (reading.startsWith(newCandidate)) {
+          return { match: true, rendaku: true };
+        }
+      }
+    }
+    return { match: false, rendaku: false };
   }
 
   // ====================================================================================
@@ -257,6 +330,8 @@
           target.style.color = "#A1FA4F";
         } else if (vocabResults[id].isNewReading) {
           target.style.color = "#EB3324";
+        } else if (vocabResults[id].hasRendaku) {
+          target.style.color = "#FFF200";
         } else {
           target.style.color = "#3487FF";
         }
