@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.2.0
+// @version      1.2.1
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/
@@ -52,9 +52,9 @@
   };
   const DefaultColors = {
     easyColor: "#A1FA4F",
-    secondaryColor: "#3487FF",
+    secondaryColor: "#6DA3EE",
     rendakuColor: "#FFF200",
-    newColor: "#EB3324",
+    newColor: "#F06356",
   };
 
   const wkof = window.wkof;
