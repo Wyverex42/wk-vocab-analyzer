@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.2.1
+// @version      1.2.2
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/
@@ -47,8 +47,9 @@
     ほ: ["ぼ", "ぽ"],
   };
   const RendakuSuffixCandidates = {
-    く: ["っ"],
-    つ: ["っ"],
+    く: "っ",
+    つ: "っ",
+    ち: "っ",
   };
   const DefaultColors = {
     easyColor: "#A1FA4F",
@@ -352,21 +353,24 @@
     if (reading.startsWith(candidate)) {
       return { match: true, rendaku: false };
     }
+    if (candidate.length == 1) {
+      return { match: false, rendaku: false };
+    }
+    const firstKana = candidate[0];
+    const lastKana = candidate[candidate.length - 1];
+    // Try rendaku suffix
+    const suffixCandidate = RendakuSuffixCandidates[lastKana];
+    if (suffixCandidate !== undefined) {
+      const newCandidate = candidate.slice(0, candidate.length - 1) + suffixCandidate;
+      if (reading.startsWith(newCandidate)) {
+        return { match: true, rendaku: true };
+      }
+    }
     // Try rendaku prefix
-    const prefixCandidates = RendakuPrefixCandidates[candidate[0]];
+    const prefixCandidates = RendakuPrefixCandidates[firstKana];
     if (prefixCandidates !== undefined) {
       for (const rendaku of prefixCandidates) {
         const newCandidate = rendaku + candidate.slice(1);
-        if (reading.startsWith(newCandidate)) {
-          return { match: true, rendaku: true };
-        }
-      }
-    }
-    // Try rendaku suffix
-    const suffixCandidates = RendakuSuffixCandidates[candidate[candidate.length - 1]];
-    if (suffixCandidates !== undefined) {
-      for (const rendaku of suffixCandidates) {
-        const newCandidate = candidate.slice(0, candidate.length - 1) + rendaku;
         if (reading.startsWith(newCandidate)) {
           return { match: true, rendaku: true };
         }
