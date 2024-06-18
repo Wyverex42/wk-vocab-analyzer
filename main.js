@@ -356,17 +356,16 @@
     if (reading.startsWith(candidate)) {
       return { match: true, rendaku: false };
     }
-    if (candidate.length == 1) {
-      return { match: false, rendaku: false };
-    }
     const firstKana = candidate[0];
-    const lastKana = candidate[candidate.length - 1];
-    // Try rendaku suffix
-    const suffixCandidate = RendakuSuffixCandidates[lastKana];
-    if (suffixCandidate !== undefined) {
-      const newCandidate = candidate.slice(0, candidate.length - 1) + suffixCandidate;
-      if (reading.startsWith(newCandidate)) {
-        return { match: true, rendaku: true };
+    if (candidate.length > 1) {
+      const lastKana = candidate[candidate.length - 1];
+      // Try rendaku suffix
+      const suffixCandidate = RendakuSuffixCandidates[lastKana];
+      if (suffixCandidate !== undefined) {
+        const newCandidate = candidate.slice(0, candidate.length - 1) + suffixCandidate;
+        if (reading.startsWith(newCandidate)) {
+          return { match: true, rendaku: true };
+        }
       }
     }
     // Try rendaku prefix
