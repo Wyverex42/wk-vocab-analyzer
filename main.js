@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WaniKani Vocab Reading Analyzer
 // @namespace    wyverex
-// @version      1.2.2
+// @version      1.2.3
 // @description  Colors vocabulary on the lesson picker based on whether their readings are known
 // @author       Andreas Krügersen-Clark
 // @match        https://www.wanikani.com/
@@ -16,7 +16,7 @@
 (function () {
   if (!window.wkof) {
     alert(
-      '"Wanikani Levels Overview Plus" script requires Wanikani Open Framework.\nYou will now be forwarded to installation instructions.'
+      '"Wanikani Vocab Reading Analyzer" script requires Wanikani Open Framework.\nYou will now be forwarded to installation instructions.'
     );
     window.location.href = "https://community.wanikani.com/t/instructions-installing-wanikani-open-framework/28549";
     return;
@@ -119,6 +119,9 @@
 
   // ----------------------------------------------------------------------
   function installMenu() {
+    if (window.location.href.includes("subject-lessons/picker")) {
+      return;
+    }
     wkof.Menu.insert_script_link({
       name: "wk_vocab_analyzer",
       submenu: "Settings",
